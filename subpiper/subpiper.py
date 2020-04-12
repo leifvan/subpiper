@@ -27,7 +27,7 @@ def subpiper(
         finished_callback: Callable[[int], None] = None,
         hide_console: bool = True,
         silent: bool = False
-    ) -> Optional[Tuple[int, List[str], List[str]]]:
+) -> Optional[Tuple[int, List[str], List[str]]]:
     """
     Launches a subprocess with the specified command, and captures stdout and stderr separately and unbuffered.
     The user can provide callbacks for printing/logging these outputs.
@@ -121,11 +121,10 @@ class _SubPiper:
                 # add flag to hide new console window
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
-        
+
         # open subprocess
         self.proc = subprocess.Popen(self.cmd, env=local_env, shell=False,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     universal_newlines=True,
                                      startupinfo=startupinfo)
         # create and start listener threads for stdout and stderr
         out_listener = Thread(target=self._enqueue_lines, args=(self.proc.stdout, self.out_queue), daemon=True)
@@ -150,11 +149,27 @@ class _SubPiper:
         Helper method
         Enqueues lines from out to the queue
         """
-        for line in iter(out.readline, b''):
-            if isinstance(line, bytes):
-                if hasattr(out, 'encoding'):
-                    line = line.decode(out.encoding)
-            queue.put(line.rstrip())
+        encoding = out.encoding if hasattr(out, 'encoding') else sys.getdefaultencoding()
+        carriage_return_byte = '\r'.encode(encoding)
+        newline_byte = '\n'.encode(encoding)
+
+        # instead of relying on out.readline, we look at every char manually to handle
+        # carriage return correctly
+
+        block = bytearray()
+        while True:
+            char = out.read(1)
+            if char:
+                if char == newline_byte:
+                    queue.put(block.decode(encoding) + '\n')
+                    block = bytearray()
+                elif char == carriage_return_byte:
+                    queue.put(block.decode(encoding))
+                    block = char
+                else:
+                    block = block + char
+            else:
+                break
         out.close()
 
     def _wait_for_process(self) -> int:
@@ -205,18 +220,23 @@ if __name__ == '__main__':
     # blocking = True
     blocking = False
 
+
     def my_out_callback(line):
         print(f'out: {line}')
+
 
     def my_err_callback(line):
         print(f'err: {line}')
 
+
     finished = False
+
 
     def my_finished_callback(retcode):
         global finished
         print(f'done: {retcode}')
         finished = True
+
 
     _mode = 'blocking' if blocking else 'non-blocking'
 
