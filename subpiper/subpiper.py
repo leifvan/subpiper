@@ -123,9 +123,8 @@ class _SubPiper:
                 startupinfo.wShowWindow = subprocess.SW_HIDE
         
         # open subprocess
-        self.proc = subprocess.Popen(self.cmd, env=local_env, shell=False,
+        self.proc = subprocess.Popen(self.cmd, env=local_env, shell=True,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     universal_newlines=True,
                                      startupinfo=startupinfo)
         # create and start listener threads for stdout and stderr
         out_listener = Thread(target=self._enqueue_lines, args=(self.proc.stdout, self.out_queue), daemon=True)
@@ -154,7 +153,9 @@ class _SubPiper:
             if isinstance(line, bytes):
                 if hasattr(out, 'encoding'):
                     line = line.decode(out.encoding)
-            queue.put(line.rstrip())
+                else:
+                    line = line.decode(sys.getdefaultencoding())
+            queue.put(line)
         out.close()
 
     def _wait_for_process(self) -> int:
